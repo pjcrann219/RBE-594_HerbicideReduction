@@ -1,0 +1,5 @@
+Agriculture-Vision-2021
+.venv
+.env
+.*venv
+.DS_Store
