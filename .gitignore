@@ -3,3 +3,4 @@ Agriculture-Vision-2021
 .env
 .*venv
 .DS_Store
+mlruns

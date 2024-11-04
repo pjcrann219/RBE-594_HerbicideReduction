@@ -7,6 +7,7 @@ import torch.optim as optim
 import mlflow
 import mlflow.pytorch
 import time
+import os
 
 mlflow.set_experiment('development')
 
@@ -22,7 +23,9 @@ hyper_params = {
 }
 mlflow.log_params(hyper_params)
 
-train_dir = "ComputerVision/Agriculture-Vision-2021/train"
+# train_dir = "ComputerVision/Agriculture-Vision-2021/train"
+train_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Agriculture-Vision-2021/train")
+
 train_loader = get_dataloader(
     train_dir, 
     batch_size=hyper_params['batch_size'],
@@ -31,7 +34,8 @@ train_loader = get_dataloader(
     num_images = hyper_params['num_images']
 )
 
-test_dir = "ComputerVision/Agriculture-Vision-2021/val"
+# test_dir = "ComputerVision/Agriculture-Vision-2021/val"
+test_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Agriculture-Vision-2021/val")
 test_loader = get_dataloader(
     test_dir,
     batch_size=hyper_params['batch_size'],
@@ -40,7 +44,9 @@ test_loader = get_dataloader(
     num_images = 1000#hyper_params['num_images']
 )
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# check for cuda or mps on mac, if not, use cpu
+device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
+print("\n\nUsing device: ", device)
 
 # model = BinaryCNN().to(device)
 model = CNN_512_4().to(device)
