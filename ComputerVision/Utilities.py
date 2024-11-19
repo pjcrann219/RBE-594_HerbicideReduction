@@ -4,9 +4,10 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 import numpy as np
 from torchvision import transforms
+import random
 
 class CustomDataset(Dataset):
-    def __init__(self, root_dir, num_images=None):
+    def __init__(self, root_dir, num_images=None, balance_ratio=None):
         """
         Sets up dataset paths and transforms
         """
@@ -28,9 +29,60 @@ class CustomDataset(Dataset):
             transforms.ToTensor(),
         ])
         self.image_names = os.listdir(self.root_dir + '/images/nir')
+        
+        if num_images is None:
+            self.num_images = len(self.num_images)
+        else:
+            self.num_images = num_images
 
-        if num_images is not None:
-            self.image_names = self.image_names[:min(num_images, len(self.image_names))]
+        self.balance_ratio = balance_ratio
+        if balance_ratio is not None:
+            self.balance_dataset()
+        else:
+            self.get_all_labels()
+
+        print(f"Dataset Loaded - True: {sum(self.labels)} False: {len(self.labels) - sum(self.labels)} - Percent True: {100 * sum(self.labels) / len(self.labels)}%")
+
+    def balance_dataset(self):
+        num_true = int(self.balance_ratio * self.num_images)
+        num_false = int((1 - self.balance_ratio) * self.num_images)
+
+        count_true = 0
+        count_false = 0
+
+        new_image_names = []
+        labels = []
+
+        for image_name in self.image_names:
+            output_path = self.root_dir + '/labels/weed_cluster/' + image_name.replace('.jpg', '.png')
+
+            output_tensor = transforms.ToTensor()(Image.open(output_path))
+            label = int(output_tensor.sum() > 0)
+
+            if label == 1 and count_true < num_true:
+                count_true += 1
+                new_image_names.append(image_name)
+                labels.append(label)
+            elif label == 0 and count_false < num_false:
+                count_false += 1
+                new_image_names.append(image_name)
+                labels.append(label)
+            
+            # print(f"{label}\ttrue: {count_true}/{num_true}\tfalse: {count_false}/{num_false}")
+            if count_true >= num_true and count_false >= num_false:
+                break
+            
+        self.image_names = new_image_names
+        self.labels = labels
+
+    def get_all_labels(self):
+        self.labels = []
+        for image_name in self.image_names[:self.num_images]:
+            output_image_path = self.root_dir + '/labels/weed_cluster/' + image_name.replace('.jpg', '.png')
+
+            output_tensor = transforms.ToTensor()(Image.open(output_image_path))
+            label = int(output_tensor.sum() > 0)
+            self.labels.append(label)
 
     def __len__(self):
         """Number of samples in dataset"""
@@ -62,11 +114,11 @@ class CustomDataset(Dataset):
         
         return input, label
 
-def get_dataloader(root_dir, batch_size=4, num_workers=0, shuffle=False, num_images=None):
+def get_dataloader(root_dir, batch_size=4, num_workers=0, shuffle=False, num_images=None, balance_ratio=None):
     """
     Creates dataloader with specified batch size and workers
     """
-    dataset = CustomDataset(root_dir, num_images=num_images)
+    dataset = CustomDataset(root_dir, num_images=num_images, balance_ratio=balance_ratio)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,

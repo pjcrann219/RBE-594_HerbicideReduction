@@ -19,34 +19,39 @@ hyper_params = {
     "num_workers": 0,
     "shuffle": True,
     "threshold": 0.5,
-    "num_images": 500000
+    "num_images": 50000,
+    "balance_ratio": 0.50
 }
 mlflow.log_params(hyper_params)
 
-# train_dir = "ComputerVision/Agriculture-Vision-2021/train"
 train_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Agriculture-Vision-2021/train")
 
+print(f"Loading training dataloader... ", end='')
 train_loader = get_dataloader(
     train_dir, 
     batch_size=hyper_params['batch_size'],
     num_workers=hyper_params['num_workers'],
     shuffle=hyper_params['shuffle'],
-    num_images = hyper_params['num_images']
+    num_images = hyper_params['num_images'],
+    balance_ratio=hyper_params['balance_ratio']
 )
 
 # test_dir = "ComputerVision/Agriculture-Vision-2021/val"
 test_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Agriculture-Vision-2021/val")
+
+print(f"Loading testing dataloader... ", end='')
 test_loader = get_dataloader(
     test_dir,
     batch_size=hyper_params['batch_size'],
     num_workers=hyper_params['num_workers'],
     shuffle=hyper_params['shuffle'],
-    num_images = 1000#hyper_params['num_images']
+    num_images = 1000,#hyper_params['num_images']
+    balance_ratio=hyper_params['balance_ratio']
 )
 
 # check for cuda or mps on mac, if not, use cpu
 device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-print("\n\nUsing device: ", device)
+print("Using device: ", device)
 
 # model = BinaryCNN().to(device)
 model = CNN_512_4().to(device)
@@ -130,6 +135,16 @@ for epoch in range(hyper_params['num_epochs']):
         "test_accuracy": epoch_accuracy_test
     }, step=epoch)
 
-torch.save(model.state_dict(), "model")
-mlflow.pytorch.log_model(model, "model")
+model = model.cpu()
+
+torch.save(model, 'models/tmp/full_model.pth')
+torch.save(model.state_dict(), "models/tmp/state_dict.pth")
+
+# mlflow.pytorch.log_model(model, "model", input_example=input.cpu().numpy())
+# mlflow.pytorch.log_model(
+#     model, 
+#     "model",
+#     input_example=input.cpu().numpy().astype('float32')
+# )
+
 mlflow.end_run()
