@@ -6,6 +6,15 @@ import numpy as np
 from torchvision import transforms
 import random
 
+def save_model(model, dir, run_name):
+    
+    save_path = os.path.join("models", dir, run_name)
+    os.makedirs(save_path, exist_ok=True)
+    print(f"Saving {run_name} model in {save_path}")
+    torch.save(model, os.path.join(save_path, "full_model.pth"))
+    torch.save(model.state_dict(), os.path.join(save_path, "state_dict.pth"))
+
+
 class CustomDataset(Dataset):
     def __init__(self, root_dir, num_images=None, balance_ratio=None):
         """
@@ -31,7 +40,7 @@ class CustomDataset(Dataset):
         self.image_names = os.listdir(self.root_dir + '/images/nir')
         
         if num_images is None:
-            self.num_images = len(self.num_images)
+            self.num_images = len(self.image_names)
         else:
             self.num_images = num_images
 

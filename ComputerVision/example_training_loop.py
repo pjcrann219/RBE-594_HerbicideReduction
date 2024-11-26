@@ -12,14 +12,14 @@ import os
 mlflow.set_experiment('development')
 
 hyper_params = {
-    "num_epochs": 15,
+    "num_epochs": 3,
     "learning_rate": 0.0001,
     "weight_decay": 1e-4,
     "batch_size": 32,
     "num_workers": 0,
     "shuffle": True,
     "threshold": 0.5,
-    "num_images": 50000,
+    "num_images": 50,
     "balance_ratio": 0.50
 }
 mlflow.log_params(hyper_params)
@@ -45,7 +45,7 @@ test_loader = get_dataloader(
     batch_size=hyper_params['batch_size'],
     num_workers=hyper_params['num_workers'],
     shuffle=hyper_params['shuffle'],
-    num_images = 1000,#hyper_params['num_images']
+    num_images = 10,#hyper_params['num_images']
     balance_ratio=hyper_params['balance_ratio']
 )
 
@@ -137,10 +137,11 @@ for epoch in range(hyper_params['num_epochs']):
 
 model = model.cpu()
 
+save_model(model, 'CNN', run_name)
 torch.save(model, 'models/tmp/full_model.pth')
 torch.save(model.state_dict(), "models/tmp/state_dict.pth")
 
-# mlflow.pytorch.log_model(model, "model", input_example=input.cpu().numpy())
+mlflow.pytorch.log_model(model, "model", input_example=input.cpu().numpy())
 # mlflow.pytorch.log_model(
 #     model, 
 #     "model",

@@ -1,7 +1,6 @@
 from Utilities import *
 from models import *
 from torchvision import transforms
-from torchvision.models import resnet50, ResNet50_Weights
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -11,44 +10,14 @@ from datetime import datetime
 import time
 import os
 
-def get_RESNET():
-
-    orig_weights = ResNet50_Weights.IMAGENET1K_V1
-    resnet = resnet50(weights=orig_weights)
-
-    original_conv = resnet.conv1
-    resnet.conv1 = nn.Conv2d(
-        in_channels=4, 
-        out_channels=original_conv.out_channels,
-        kernel_size=original_conv.kernel_size,
-        stride=original_conv.stride,
-        padding=original_conv.padding,
-        bias=original_conv.bias
-    )
-
-    # Copy weights for the first 3 channels and initialize the 4th channel
-    with torch.no_grad():
-        resnet.conv1.weight[:, :3, :, :] = original_conv.weight  # Copy weights for RGB
-        resnet.conv1.weight[:, 3:, :, :] = torch.mean(original_conv.weight, dim=1, keepdim=True)  # Initialize 4th channel
-
-    # Change number of output layers -> TODO: can try multiple layers in classification head
-    resnet.fc = nn.Sequential(
-        nn.Linear(in_features=2048, out_features=1),
-        nn.Sigmoid()  # Sigmoid activation
-    )
-
-    return resnet
-
+mlflow.set_experiment('CNN')
 run_name = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-print(f"Starting experiment")
-mlflow.set_experiment('RESNET')
-
 hyper_params = {
-    "num_epochs": 10,
+    "num_epochs": 15,
     "learning_rate": 0.0001,
-    "weight_decay": 1e-3,
-    "batch_size": 16,
+    "weight_decay": 1e-4,
+    "batch_size": 32,
     "num_workers": 0,
     "shuffle": True,
     "threshold": 0.5,
@@ -81,7 +50,7 @@ test_loader = get_dataloader(
     batch_size=hyper_params['batch_size'],
     num_workers=hyper_params['num_workers'],
     shuffle=hyper_params['shuffle'],
-    num_images = 2000,#hyper_params['num_images']
+    num_images = 1000,#hyper_params['num_images']
     balance_ratio=hyper_params['balance_ratio']
 )
 
@@ -90,9 +59,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.b
 print("Using device: ", device)
 
 # model = BinaryCNN().to(device)
-# model = CNN_512_4().to(device)
-model = get_RESNET()
-model = model.to(device)
+model = CNN_512_4().to(device)
 criterion = nn.BCELoss()
 optimizer = optim.Adam(model.parameters(), lr=hyper_params['learning_rate'], weight_decay=hyper_params['weight_decay'])
 
@@ -119,7 +86,7 @@ for epoch in range(hyper_params['num_epochs']):
 
         # Compute loss/accuracy and do back prop
         loss = criterion(outputs, labels)
-        # loss.backward()
+        loss.backward()
         accuracy = sum(predictions == labels) / labels.size(0)
 
         # Step optimizer
@@ -175,6 +142,6 @@ for epoch in range(hyper_params['num_epochs']):
 
 model = model.cpu()
 
-save_model(model, 'RESNET', run_name)
+save_model(model, 'CNN', run_name)
 
 mlflow.end_run()

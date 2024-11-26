@@ -128,6 +128,11 @@ def perform_evaluation(model, subtitle=''):
     thresholds, TPRs, FPRs = compute_ROC(results)
     plot_ROC(thresholds, TPRs, FPRs, subtitle=subtitle)
 
+device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
+model = load_model('models/CNN/2024-11-19 10:05:54/full_model.pth', device=device)
+perform_evaluation(model, subtitle='CNN Model')
+
+
 # device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
 # model = load_model('models/RESNET/full_model2.pth', device=device)
 # perform_evaluation(model, subtitle='RESNET50 Model')
