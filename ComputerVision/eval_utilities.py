@@ -8,13 +8,37 @@ import seaborn as sns
 
 # Loads a PyTorch model from a file path and moves it to the specified device
 def load_model(model_path, device=False):
-
     if not device:
         device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-    model = torch.load(model_path)
+    
+    try:
+        # First try loading as a full model
+        model = torch.load(model_path, map_location=device)
+        print("Successfully loaded full model")
+    except Exception as e:
+        print(f"Could not load as full model: {str(e)}")
+        try:
+            # Try loading as a state dict
+            from models import CNN_512_4
+            from train_RESNET import get_RESNET
+            
+            # Determine which model architecture to use based on the path
+            if "CNN" in model_path:
+                model = CNN_512_4()
+            elif "RESNET" in model_path:
+                model = get_RESNET()
+            else:
+                raise ValueError("Could not determine model architecture from path")
+            
+            # Load the state dict
+            state_dict = torch.load(model_path, map_location=device)
+            model.load_state_dict(state_dict)
+            print("Successfully loaded state dict")
+        except Exception as e:
+            raise Exception(f"Failed to load model: {str(e)}")
+    
     model.to(device)
     model.eval()
-
     return model
 
 # Evaluates model performance on test data and returns results as a DataFrame
@@ -127,28 +151,3 @@ def perform_evaluation(model, subtitle=''):
     results = run_eval(model, num_images=3200)
     thresholds, TPRs, FPRs = compute_ROC(results)
     plot_ROC(thresholds, TPRs, FPRs, subtitle=subtitle)
-
-device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-model = load_model('models/CNN/2024-11-19 10:05:54/full_model.pth', device=device)
-perform_evaluation(model, subtitle='CNN Model')
-
-
-# device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-# model = load_model('models/RESNET/full_model2.pth', device=device)
-# perform_evaluation(model, subtitle='RESNET50 Model')
-
-# device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-# model = load_model('models/CNN/full_model.pth', device=device)
-# perform_evaluation(model, subtitle='Custom CNN Model')
-
-# device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-# model = load_model('models/RESNET/full_model2.pth', device=device)
-# results = run_eval(model, num_images=3200)
-# cm = compute_confusion_matrix(results, threshold=0.1)
-# plot_confusion_matrix(cm, subtitle='RESNET50 Threshold = 0.1')
-
-# device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-# model = load_model('models/CNN/full_model.pth', device=device)
-# results = run_eval(model, num_images=3200)
-# cm = compute_confusion_matrix(results, threshold=0.1)
-# plot_confusion_matrix(cm, subtitle='Custom CNN Threshold = 0.1')
