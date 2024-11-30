@@ -47,9 +47,11 @@ class FieldSimulator:
         # Store actual field images
         self.field_images = {}  # (x,y) -> image tensor
     
-    def get_field_images(self, num_images=400):
+    def get_field_images(self, field_id=None, min_images=50):
         """
-        Get images from the same field in the dataset and their actual positions
+        Get images from a specific field or find fields with enough images
+        field_id: Specific field ID to use, or None to find suitable fields
+        min_images: Minimum number of images required for a field to be considered
         """
         test_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Agriculture-Vision-2021/val")
         image_files = os.listdir(os.path.join(test_dir, 'images/rgb'))
@@ -60,25 +62,37 @@ class FieldSimulator:
         for img in image_files:
             # Parse filename: field_id_x1-y1-x2-y2.jpg
             parts = img.split('_')
-            field_id = parts[0]
+            current_field_id = parts[0]
             coords = parts[1].split('.')[0].split('-')
             x1, y1, x2, y2 = map(int, coords)
             
-            if field_id not in field_groups:
-                field_groups[field_id] = []
-                field_coords[field_id] = []
-            field_groups[field_id].append(img)
-            field_coords[field_id].append((x1, y1, x2, y2))
+            if current_field_id not in field_groups:
+                field_groups[current_field_id] = []
+                field_coords[current_field_id] = []
+            field_groups[current_field_id].append(img)
+            field_coords[current_field_id].append((x1, y1, x2, y2))
         
-        # Find field with most contiguous images
-        field_counts = [(field, len(images)) for field, images in field_groups.items()]
-        field_counts.sort(key=lambda x: x[1], reverse=True)
+        # Find suitable fields
+        suitable_fields = [(f, len(imgs)) for f, imgs in field_groups.items() if len(imgs) >= min_images]
+        suitable_fields.sort(key=lambda x: x[1], reverse=True)
         
-        if not field_counts:
-            raise ValueError("No fields found in the dataset")
+        if not suitable_fields:
+            raise ValueError(f"No fields found with at least {min_images} images")
         
-        # Select field with most images
-        selected_field = field_counts[0][0]
+        # Select field
+        if field_id is None:
+            # If no specific field requested, use the one with most images
+            selected_field = suitable_fields[0][0]
+        else:
+            if field_id not in field_groups or len(field_groups[field_id]) < min_images:
+                print(f"Warning: Requested field {field_id} not found or has too few images")
+                print(f"Available fields with {min_images}+ images:")
+                for f, count in suitable_fields[:5]:
+                    print(f"  {f}: {count} images")
+                selected_field = suitable_fields[0][0]
+            else:
+                selected_field = field_id
+        
         images = field_groups[selected_field]
         coords = field_coords[selected_field]
         
@@ -93,11 +107,27 @@ class FieldSimulator:
         x_offset = min(all_x1)
         y_offset = min(all_y1)
         
-        print(f"Using field {selected_field} with {len(images)} images")
+        print(f"\nUsing field {selected_field} with {len(images)} images")
         print(f"Field dimensions: {field_width}x{field_height} pixels")
         print(f"Coordinate range: x[{min(all_x1)}-{max(all_x2)}], y[{min(all_y1)}-{max(all_y2)}]")
         
         return selected_field, images, coords, (x_offset, y_offset, field_width, field_height)
+    
+    def load_masks(self, image_name, test_dir):
+        """
+        Load mask and boundary information for an image
+        """
+        base_name = image_name.replace('.jpg', '.png')
+        
+        # Load weed cluster mask
+        weed_path = os.path.join(test_dir, 'labels/weed_cluster', base_name)
+        weed_mask = np.array(Image.open(weed_path)) if os.path.exists(weed_path) else None
+        
+        # Load field boundary mask
+        boundary_path = os.path.join(test_dir, 'masks/boundary', base_name)
+        boundary_mask = np.array(Image.open(boundary_path)) if os.path.exists(boundary_path) else None
+        
+        return weed_mask, boundary_mask
     
     def simulate_field(self, num_weed_clusters=10, cluster_size_range=(1, 3)):
         """
@@ -306,29 +336,51 @@ class FieldSimulator:
         plt.tight_layout()
         plt.show()
     
-    def visualize_stitched_field(self, show_predictions=True, show_ground_truth=True):
+    def visualize_stitched_field(self, field_id=None, show_predictions=True, show_ground_truth=True, show_masks=True, show_animation=False):
         """
         Create and display a stitched view of the entire field with actual image positions
+        field_id: Specific field to visualize, or None to use largest field
+        show_predictions: Whether to show model predictions overlay
+        show_ground_truth: Whether to show ground truth overlay
+        show_masks: Whether to show weed mask overlay
+        show_animation: Whether to show drone path animation (default: False)
         """
         # Get field images and their coordinates
-        field_id, field_images, coords, (x_offset, y_offset, field_width, field_height) = self.get_field_images()
+        field_id, field_images, coords, (x_offset, y_offset, field_width, field_height) = self.get_field_images(field_id)
         
         # Create empty arrays for RGB image and overlays
         stitched_rgb = np.zeros((field_height, field_width, 3))
         if show_predictions:
-            pred_overlay = np.zeros((field_height, field_width, 4))  # RGBA for overlay
+            pred_overlay = np.zeros((field_height, field_width, 4))
         if show_ground_truth:
-            truth_overlay = np.zeros((field_height, field_width, 4))  # RGBA for overlay
+            truth_overlay = np.zeros((field_height, field_width, 4))
+        if show_masks:
+            weed_mask_full = np.zeros((field_height, field_width))
         
-        # Create figure with subplots
-        if show_ground_truth:
-            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(30, 10))
-            axes = [ax1, ax2, ax3]
-            titles = ['RGB Field View', 'Model Predictions', 'Ground Truth']
+        # Calculate rows and columns for a square layout
+        n_plots = 1 + sum([show_predictions, show_ground_truth, show_masks])
+        if n_plots <= 2:
+            n_rows, n_cols = 1, n_plots
         else:
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
-            axes = [ax1, ax2]
-            titles = ['RGB Field View', 'Model Predictions']
+            n_rows, n_cols = 2, 2
+        
+        # Create figure with adjusted size and spacing
+        fig = plt.figure(figsize=(n_cols*6, n_rows*6))
+        plt.subplots_adjust(wspace=0.1, hspace=0.2)
+        
+        # Create subplot grid
+        axes = []
+        for i in range(n_plots):
+            ax = fig.add_subplot(n_rows, n_cols, i+1)
+            axes.append(ax)
+        
+        titles = ['RGB Field View']
+        if show_predictions:
+            titles.append('Model Predictions')
+        if show_ground_truth:
+            titles.append('Ground Truth')
+        if show_masks:
+            titles.append('Weed Mask')
         
         # Denormalization parameters
         mean = np.array([0.485, 0.456, 0.406])
@@ -344,6 +396,7 @@ class FieldSimulator:
         
         # Process each image
         device = next(self.model.parameters()).device
+        waypoints = []
         
         for i, (input, label) in enumerate(dataloader):
             # Get coordinates for this image
@@ -369,40 +422,89 @@ class FieldSimulator:
                 prediction = (confidence >= 0.5)
             
             if show_predictions:
-                # Add prediction overlay
                 if prediction:
-                    pred_overlay[y1:y2, x1:x2] = [1, 0, 0, confidence * 0.3]  # Red for weed
+                    pred_overlay[y1:y2, x1:x2] = [1, 0, 0, confidence * 0.3]
                 else:
-                    pred_overlay[y1:y2, x1:x2] = [0, 1, 0, (1-confidence) * 0.3]  # Green for no weed
+                    pred_overlay[y1:y2, x1:x2] = [0, 1, 0, (1-confidence) * 0.3]
             
             if show_ground_truth:
-                # Add ground truth overlay
                 truth = label.item()
                 if truth:
-                    truth_overlay[y1:y2, x1:x2] = [1, 0, 0, 0.3]  # Red for weed
+                    truth_overlay[y1:y2, x1:x2] = [1, 0, 0, 0.3]
                 else:
-                    truth_overlay[y1:y2, x1:x2] = [0, 1, 0, 0.3]  # Green for no weed
+                    truth_overlay[y1:y2, x1:x2] = [0, 1, 0, 0.3]
+            
+            if show_masks:
+                # Load actual weed mask
+                mask_path = os.path.join(test_dir, 'labels/weed_cluster', 
+                                       field_images[i].replace('.jpg', '.png'))
+                if os.path.exists(mask_path):
+                    mask = np.array(Image.open(mask_path))
+                    weed_mask_full[y1:y2, x1:x2] = mask
+            
+            # Add waypoint if weed detected
+            if prediction:
+                center_x = (x1 + x2) / 2
+                center_y = (y1 + y2) / 2
+                waypoints.append({
+                    'x': float(center_x),
+                    'y': float(center_y),
+                    'confidence': float(confidence)
+                })
         
         # Plot results
         for ax, title in zip(axes, titles):
-            ax.imshow(stitched_rgb)
-            if title == 'Model Predictions' and show_predictions:
+            if title == 'RGB Field View':
+                ax.imshow(stitched_rgb)
+            elif title == 'Model Predictions':
+                ax.imshow(stitched_rgb)
                 ax.imshow(pred_overlay)
-            elif title == 'Ground Truth' and show_ground_truth:
+            elif title == 'Ground Truth':
+                ax.imshow(stitched_rgb)
                 ax.imshow(truth_overlay)
+            elif title == 'Weed Mask':
+                ax.imshow(weed_mask_full, cmap='hot', alpha=0.7)
+                ax.imshow(stitched_rgb, alpha=0.3)  # Overlay RGB with low opacity
+            
+            # Add waypoints to all plots
+            if waypoints:
+                waypoint_x = [w['x'] for w in waypoints]
+                waypoint_y = [w['y'] for w in waypoints]
+                ax.scatter(waypoint_x, waypoint_y, c='yellow', marker='x', s=50, label='Waypoints')
+            
             ax.set_title(title)
             ax.axis('off')
         
         # Add legend
         legend_elements = [
             Patch(facecolor='red', alpha=0.3, label='Weed'),
-            Patch(facecolor='green', alpha=0.3, label='No weed')
+            Patch(facecolor='green', alpha=0.3, label='No weed'),
+            plt.Line2D([0], [0], marker='x', color='yellow', label='Waypoints',
+                      markerfacecolor='yellow', markersize=10, linestyle='None')
         ]
+        
         for ax in axes[1:]:
             ax.legend(handles=legend_elements, loc='upper right')
         
+        plt.suptitle(f'Field {field_id}', y=1.02)
         plt.tight_layout()
         plt.show()
+        
+        # Save waypoints
+        waypoints_file = f'waypoints_{field_id}.json'
+        with open(waypoints_file, 'w') as f:
+            json.dump({
+                'field_id': field_id,
+                'field_dimensions': {
+                    'width': field_width,
+                    'height': field_height
+                },
+                'waypoints': waypoints
+            }, f, indent=4)
+        print(f"\nSaved {len(waypoints)} waypoints to {waypoints_file}")
+        
+        if show_animation and waypoints:
+            self.animate_drone_path(stitched_rgb, waypoints)
         
         # Print accuracy metrics
         if show_ground_truth:
@@ -416,28 +518,53 @@ class FieldSimulator:
             recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
             f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
             
-            print("\nModel Performance Metrics:")
+            print(f"\nModel Performance Metrics for Field {field_id}:")
             print(f"Accuracy: {accuracy:.3f}")
             print(f"Precision: {precision:.3f}")
             print(f"Recall: {recall:.3f}")
             print(f"F1 Score: {f1:.3f}")
+    
+    def animate_drone_path(self, background, waypoints, interval=50):
+        """
+        Animate drone moving between waypoints
+        """
+        if not waypoints:
+            return
+        
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(background)
+        
+        # Plot all waypoints
+        waypoint_x = [w['x'] for w in waypoints]
+        waypoint_y = [w['y'] for w in waypoints]
+        ax.scatter(waypoint_x, waypoint_y, c='yellow', marker='x', s=50, label='Waypoints')
+        
+        # Create drone marker
+        drone = plt.Circle((waypoint_x[0], waypoint_y[0]), 50, color='red', label='Drone')
+        ax.add_patch(drone)
+        
+        def update(frame):
+            if frame < len(waypoints):
+                drone.center = (waypoint_x[frame], waypoint_y[frame])
+            return [drone]
+        
+        ani = FuncAnimation(fig, update, frames=len(waypoints),
+                          interval=interval, blit=True)
+        
+        ax.set_title('Drone Path Animation')
+        ax.legend()
+        plt.show()
 
 
 def main():
-    # Create field simulator
-    print("Initializing field simulator...")
+    print("Starting stitch")
     simulator = FieldSimulator(width_meters=100, height_meters=100, image_size_meters=5)
+    print("\nCreating stitch")
     
-    # Show stitched field view with ground truth comparison
-    print("\nCreating stitched field view...")
-    simulator.visualize_stitched_field(show_predictions=True, show_ground_truth=True)
+    #simulator.visualize_stitched_field(field_id="6M2I1BMVZ", show_predictions=True, show_ground_truth=True, show_animation=False)
+    simulator.visualize_stitched_field(field_id=None, show_predictions=True, show_ground_truth=True, show_animation=False)
+    print("\nDone with visualization")
     
-    # Save waypoints
-    print("\nSaving waypoints...")
-    simulator.save_waypoints()
-    
-    print("\nDone! Check waypoints.json for the detected weed locations.")
-
 
 if __name__ == "__main__":
     main() 
