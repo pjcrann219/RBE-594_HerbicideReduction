@@ -63,7 +63,7 @@ def compute_ROC(data, threholds=False):
     return thresholds, TPRs, FPRs
 
 # Visualizes ROC curve with threshold labels and AUC score
-def plot_ROC(thresholds, TPRs, FPRs, subtitle=''):
+def plot_ROC(thresholds, TPRs, FPRs, subtitle='', show=True):
 
     AUC = compute_AUC(TPRs, FPRs)
 
@@ -81,7 +81,9 @@ def plot_ROC(thresholds, TPRs, FPRs, subtitle=''):
     ax.set_xlim([0, 1]); ax.set_ylim([0, 1]); ax.grid()
     ax.set_title(f'Reciever Operating Characteristic Curve - AUC: {AUC:.3f}\n' + subtitle)
     ax.legend()
-    plt.show()
+
+    if show:
+        plt.show()
 
 # Calculates confusion matrix based on predictions using given threshold
 # def compute_confusion_matrix(data, threshold):
@@ -124,11 +126,11 @@ def compute_AUC(TPRs, FPRs):
     return auc
 
 # Runs complete model evaluation pipeline and displays ROC curve
-def perform_evaluation(model, subtitle='', isViT=False):
+def perform_evaluation(model, subtitle='', isViT=False, show=True):
 
     results = run_eval(model, num_images=3200, isViT=isViT)
     thresholds, TPRs, FPRs = compute_ROC(results)
-    plot_ROC(thresholds, TPRs, FPRs, subtitle=subtitle)
+    plot_ROC(thresholds, TPRs, FPRs, subtitle=subtitle, show=show)
 
 # device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
 # model = load_model('models/CNN/2024-11-19 10:05:54/full_model.pth', device=device)
@@ -158,8 +160,8 @@ def perform_evaluation(model, subtitle='', isViT=False):
 # cm = compute_confusion_matrix(results, threshold=0.1)
 # plot_confusion_matrix(cm, subtitle='Custom CNN Threshold = 0.1')
 
-device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
-model = load_model('models/ViT/2024-11-30 11:51:01/full_model.pth', device=device)
-results = run_eval(model, num_images=3200, isViT=True)
-cm = compute_confusion_matrix(results, threshold=0.1)
-plot_confusion_matrix(cm, subtitle='ViT Threshold = 0.1')
+# device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
+# model = load_model('models/ViT/2024-11-30 11:51:01/full_model.pth', device=device)
+# results = run_eval(model, num_images=3200, isViT=True)
+# cm = compute_confusion_matrix(results, threshold=0.1)
+# plot_confusion_matrix(cm, subtitle='ViT Threshold = 0.1')
