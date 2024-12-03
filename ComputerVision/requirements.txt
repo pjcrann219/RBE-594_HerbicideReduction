@@ -4,3 +4,4 @@ torchaudio
 matplotlib
 tqdm
 mlflow
+seaborn
