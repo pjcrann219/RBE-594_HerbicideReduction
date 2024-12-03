@@ -10,6 +10,7 @@ from PIL import Image
 import re
 from matplotlib.animation import FuncAnimation
 import time
+from scipy.ndimage import binary_dilation, binary_erosion
 
 class FieldSimulator:
     def __init__(self, width_meters=100, height_meters=100, image_size_meters=5, prediction_threshold=0.5):
@@ -707,39 +708,38 @@ class FieldSimulator:
         
         return stitched_rgb, pred_overlay, truth_overlay, weed_mask_full, waypoints
     
+    def create_border_overlay(self, mask, color, border_width=2):
+        """Helper function to create border overlay for a mask"""
+        # Create border by subtracting eroded mask from dilated mask
+        dilated = binary_dilation(mask, iterations=border_width)
+        eroded = binary_erosion(mask, iterations=border_width)
+        border = dilated & ~eroded
+        
+        # Create RGBA overlay
+        overlay = np.zeros((*mask.shape, 4))
+        overlay[border] = [*color, 1.0]  # Solid color for border
+        return overlay
+    
     def visualize_synthetic_field(self, grid_width=10, grid_height=10, weed_ratio=0.3,
                                 show_predictions=True, show_ground_truth=True, 
                                 show_masks=True, show_animation=False, show_waypoints=False,
-                                show_evaluation=True):
+                                show_evaluation=True, border_thickness=30):
         """
         Create and visualize a synthetic field
-        grid_width: Number of images in width
-        grid_height: Number of images in height
-        weed_ratio: Approximate ratio of images that should contain weeds (0-1)
-        show_evaluation: If True, shows evaluation overlay instead of weed mask (default: True)
         """
         # Create synthetic field
         stitched_rgb, pred_overlay, truth_overlay, weed_mask_full, waypoints = \
             self.create_synthetic_field(grid_width, grid_height, weed_ratio)
         
-        # Create evaluation overlay
-        eval_overlay = np.zeros((*stitched_rgb.shape[:2], 4))  # RGBA
-        
         # Extract binary masks from overlays
         pred_mask = pred_overlay[:,:,0] > 0  # Red channel indicates weed prediction
         truth_mask = truth_overlay[:,:,0] > 0  # Red channel indicates actual weed
         
-        # True Positives (Red): Predicted weed and actually weed
-        eval_overlay[pred_mask & truth_mask] = [1, 0, 0, 0.3]  # Red
-        
-        # True Negatives (Green): Predicted no weed and actually no weed
-        eval_overlay[~pred_mask & ~truth_mask] = [0, 1, 0, 0.3]  # Green
-        
-        # False Positives (Yellow): Predicted weed but actually no weed
-        eval_overlay[pred_mask & ~truth_mask] = [1, 1, 0, 0.3]  # Yellow
-        
-        # False Negatives (Blue): Missed actual weeds
-        eval_overlay[~pred_mask & truth_mask] = [0, 0, 1, 0.3]  # Blue
+        # Define all masks for metrics
+        tp_mask = pred_mask & truth_mask          # True Positive: predicted weed AND actually weed
+        tn_mask = ~pred_mask & ~truth_mask        # True Negative: predicted no weed AND actually no weed
+        fp_mask = pred_mask & ~truth_mask         # False Positive: predicted weed BUT actually no weed
+        fn_mask = ~pred_mask & truth_mask         # False Negative: predicted no weed BUT actually weed
         
         # Calculate layout
         if show_evaluation:
@@ -773,26 +773,46 @@ class FieldSimulator:
         
         # Plot results
         for ax, title in zip(axes, titles):
-            if title == 'RGB Field View':
-                ax.imshow(stitched_rgb)
-            elif title == 'Model Predictions':
-                ax.imshow(stitched_rgb)
-                ax.imshow(pred_overlay)
+            # Always show the RGB image
+            ax.imshow(stitched_rgb)
+            
+            if title == 'Model Predictions':
+                pred_border = self.create_border_overlay(pred_mask, [1, 0, 0], border_width=border_thickness)
+                ax.imshow(pred_border)
+            
             elif title == 'Ground Truth':
-                ax.imshow(stitched_rgb)
-                ax.imshow(truth_overlay)
+                truth_border = self.create_border_overlay(truth_mask, [1, 0, 0], border_width=border_thickness)
+                ax.imshow(truth_border)
+            
             elif title == 'Evaluation Overlay':
-                ax.imshow(stitched_rgb)
+                # Create evaluation overlay with borders
+                eval_overlay = np.zeros((*stitched_rgb.shape[:2], 4))  # RGBA
+                
+                # True Positives (Green): Correctly identified weeds
+                tp_overlay = self.create_border_overlay(tp_mask, [0, 1, 0], border_width=border_thickness)  # Green
+                
+                # False Positives (Yellow): Predicted weed but actually no weed
+                fp_overlay = self.create_border_overlay(fp_mask, [1, 1, 0], border_width=border_thickness)  # Yellow
+                
+                # False Negatives (Blue): Missed actual weeds
+                fn_overlay = self.create_border_overlay(fn_mask, [0, 0, 1], border_width=border_thickness)  # Blue
+                
+                # Combine overlays
+                eval_overlay = np.maximum.reduce([tp_overlay, fp_overlay, fn_overlay])
                 ax.imshow(eval_overlay)
+                
+                # Update legend for evaluation plot
+                legend_elements = [
+                    Patch(facecolor='green', label='Correct Detection'),
+                    Patch(facecolor='yellow', label='False Positive'),
+                    Patch(facecolor='blue', label='False Negative')
+                ]
+                ax.legend(handles=legend_elements, bbox_to_anchor=(1.0, 1.15), 
+                         loc='upper right', ncol=3)
+            
             elif title == 'Weed Mask':
                 ax.imshow(weed_mask_full, cmap='hot', alpha=0.7)
                 ax.imshow(stitched_rgb, alpha=0.3)
-            
-            # Add waypoints if requested
-            if show_waypoints and waypoints:
-                waypoint_x = [w['x'] for w in waypoints]
-                waypoint_y = [w['y'] for w in waypoints]
-                ax.scatter(waypoint_x, waypoint_y, c='yellow', marker='x', s=50, label='Waypoints')
             
             # Add grid lines
             image_size = stitched_rgb.shape[0] // grid_height
@@ -803,29 +823,12 @@ class FieldSimulator:
             
             ax.set_title(title)
             ax.axis('off')
-        
-        # Add legend
-        if show_evaluation:
-            legend_elements = [
-                Patch(facecolor='red', alpha=0.3, label='True Positive (Weed)'),
-                Patch(facecolor='green', alpha=0.3, label='True Negative (No Weed)'),
-                Patch(facecolor='yellow', alpha=0.3, label='False Positive'),
-                Patch(facecolor='blue', alpha=0.3, label='False Negative')
-            ]
-        else:
-            legend_elements = [
-                Patch(facecolor='red', alpha=0.3, label='Weed'),
-                Patch(facecolor='green', alpha=0.3, label='No weed')
-            ]
             
-        if show_waypoints:
-            legend_elements.append(
-                plt.Line2D([0], [0], marker='x', color='yellow', label='Waypoints',
-                          markerfacecolor='yellow', markersize=10, linestyle='None')
-            )
-        
-        for ax in axes[1:]:
-            ax.legend(handles=legend_elements, loc='upper right')
+            # Add legend for non-evaluation plots
+            if title != 'RGB Field View' and title != 'Evaluation Overlay':
+                legend_elements = [Patch(facecolor='red', label='Weed Location')]
+                ax.legend(handles=legend_elements, bbox_to_anchor=(1.0, 1.15), 
+                         loc='upper right', ncol=1)
         
         plt.suptitle(f'Synthetic Field ({grid_width}x{grid_height}, {weed_ratio*100:.0f}% weed ratio)', y=1.02)
         plt.tight_layout()
@@ -833,10 +836,10 @@ class FieldSimulator:
         
         # Calculate and print evaluation metrics
         if show_evaluation:
-            tp = np.sum(pred_mask & truth_mask)
-            tn = np.sum(~pred_mask & ~truth_mask)
-            fp = np.sum(pred_mask & ~truth_mask)
-            fn = np.sum(~pred_mask & truth_mask)
+            tp = np.sum(tp_mask)
+            tn = np.sum(tn_mask)
+            fp = np.sum(fp_mask)
+            fn = np.sum(fn_mask)
             
             accuracy = (tp + tn) / (tp + tn + fp + fn)
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0
@@ -852,10 +855,6 @@ class FieldSimulator:
             print(f"Precision: {precision:.3f}")
             print(f"Recall: {recall:.3f}")
             print(f"F1 Score: {f1:.3f}")
-        
-        # Animate drone path if requested
-        if show_animation and waypoints:
-            self.animate_drone_path(stitched_rgb, waypoints)
         
         # Save waypoints
         waypoints_file = f'waypoints_synthetic_{grid_width}x{grid_height}.json'
@@ -880,7 +879,7 @@ def main():
         width_meters=100, 
         height_meters=100, 
         image_size_meters=5,
-        prediction_threshold=0.7
+        prediction_threshold=0.8
     )
     
     # # Example 1: Visualize real field
@@ -898,13 +897,14 @@ def main():
     simulator.visualize_synthetic_field(
         grid_width=20,           # 8 images wide
         grid_height=16,          # 6 images tall
-        weed_ratio=0.06,         # a percentage of images will contain weeds
+        weed_ratio=0.15,         # a percentage of images will contain weeds
         show_predictions=True,
         show_ground_truth=True,
         show_masks=False,       # Mask will be replaced by evaluation overlay
         show_animation=False,
         show_waypoints=False,
-        show_evaluation=True    # Show the evaluation overlay
+        show_evaluation=True,   # Show the evaluation overlay
+        border_thickness=30
     )
     
     print("\nDone!")
