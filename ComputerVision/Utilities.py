@@ -6,6 +6,17 @@ import numpy as np
 from torchvision import transforms
 import random
 
+# Loads a PyTorch model from a file path and moves it to the specified device
+def load_model(model_path, device=False):
+
+    if not device:
+        device = torch.device("cuda" if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else "cpu"))
+    model = torch.load(model_path)
+    model.to(device)
+    model.eval()
+
+    return model
+
 def save_model(model, dir, run_name):
     
     save_path = os.path.join("models", dir, run_name)
