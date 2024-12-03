@@ -767,7 +767,7 @@ class FieldSimulator:
         if show_ground_truth:
             titles.append('Ground Truth')
         if show_evaluation:
-            titles.append('Evaluation Overlay')
+            titles.append('Evaluation')
         elif show_masks:
             titles.append('Weed Mask')
         
@@ -784,7 +784,7 @@ class FieldSimulator:
                 truth_border = self.create_border_overlay(truth_mask, [1, 0, 0], border_width=border_thickness)
                 ax.imshow(truth_border)
             
-            elif title == 'Evaluation Overlay':
+            elif title == 'Evaluation':
                 # Create evaluation overlay with borders
                 eval_overlay = np.zeros((*stitched_rgb.shape[:2], 4))  # RGBA
                 
@@ -801,14 +801,14 @@ class FieldSimulator:
                 eval_overlay = np.maximum.reduce([tp_overlay, fp_overlay, fn_overlay])
                 ax.imshow(eval_overlay)
                 
-                # Update legend for evaluation plot
+                # Update legend for evaluation plot - stacked vertically
                 legend_elements = [
                     Patch(facecolor='green', label='Correct Detection'),
                     Patch(facecolor='yellow', label='False Positive'),
                     Patch(facecolor='blue', label='False Negative')
                 ]
                 ax.legend(handles=legend_elements, bbox_to_anchor=(1.0, 1.15), 
-                         loc='upper right', ncol=3)
+                         loc='upper right', ncol=1)
             
             elif title == 'Weed Mask':
                 ax.imshow(weed_mask_full, cmap='hot', alpha=0.7)
@@ -825,7 +825,7 @@ class FieldSimulator:
             ax.axis('off')
             
             # Add legend for non-evaluation plots
-            if title != 'RGB Field View' and title != 'Evaluation Overlay':
+            if title != 'RGB Field View' and title != 'Evaluation':
                 legend_elements = [Patch(facecolor='red', label='Weed Location')]
                 ax.legend(handles=legend_elements, bbox_to_anchor=(1.0, 1.15), 
                          loc='upper right', ncol=1)
@@ -879,7 +879,7 @@ def main():
         width_meters=100, 
         height_meters=100, 
         image_size_meters=5,
-        prediction_threshold=0.8
+        prediction_threshold=0.9
     )
     
     # # Example 1: Visualize real field
